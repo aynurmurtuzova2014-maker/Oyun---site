@@ -28,5 +28,5 @@ function yoxla() {
 </script>
 
 </body>
-</html># Oyun---site
-12345678
+</html>
+
