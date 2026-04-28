@@ -1,32 +1,313 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>Oyun Saytı</title>
-</head>
-<body style="text-align:center; font-family:sans-serif;">
+import pygame
+import random
+import os
 
-<h1>🎮 Oyun: Rəqəmi tap</h1>
-<p>1-dən 10-a qədər bir rəqəm tutmuşam</p>
+pygame.init()
 
-<input type="number" id="guess">
-<button onclick="yoxla()">Yoxla</button>
+w, h = 600, 900
+game_h = 800
 
-<p id="netice"></p>
+screen = pygame.display.set_mode((w, h))
+pygame.display.set_caption("SNAKE FINAL SAFE")
 
-<script>
-let random = Math.floor(Math.random() * 10) + 1;
+clock = pygame.time.Clock()
 
-function yoxla() {
-  let guess = document.getElementById("guess").value;
-  
-  if (guess == random) {
-    document.getElementById("netice").innerText = "🎉 Düz tapdın!";
-  } else {
-    document.getElementById("netice").innerText = "❌ Səhv, yenə yoxla";
-  }
-}
-</script>
+# 🎨 SKINS (SHOP)
+skins = [
+    {"color": (0,255,0), "price": 0, "name": "YEŞİL"},
+    {"color": (0,200,255), "price": 5, "name": "MAVİ"},
+    {"color": (255,255,0), "price": 5, "name": "SARI"},
+    {"color": (255,0,255), "price": 7, "name": "MOR"},
+    {"color": (255,80,80), "price": 10, "name": "KIRMIZI"},
+    {"color": (30,30,30), "price": 15, "name": "SİYAH"}
+]
 
-</body>
-</html>
+skin_index = 0
+snake_color = skins[0]["color"]
+owned_skins = [0]
 
+def set_skin(i):
+    global snake_color, skin_index
+    skin_index = i
+    snake_color = skins[i]["color"]
+
+def buy_or_select_skin(i):
+    global coins
+
+    if i in owned_skins:
+        set_skin(i)
+    else:
+        if coins >= skins[i]["price"]:
+            coins -= skins[i]["price"]
+            owned_skins.append(i)
+            set_skin(i)
+
+# 🌿 COLORS
+grass1 = (90,220,120)
+grass2 = (70,200,100)
+red = (255,60,60)
+white = (255,255,255)
+black = (0,0,0)
+blue = (80,180,255)
+yellow = (255,220,0)
+
+block = 28
+font = pygame.font.SysFont("Arial", 25)
+big_font = pygame.font.SysFont("Arial", 50)
+
+# 🏆 HIGH SCORE
+HIGH_FILE = "highscore.txt"
+if os.path.exists(HIGH_FILE):
+    highscore = int(open(HIGH_FILE).read())
+else:
+    highscore = 0
+
+def save_high(score):
+    global highscore
+    if score > highscore:
+        highscore = score
+        open(HIGH_FILE, "w").write(str(highscore))
+
+# 🌸 FLOWERS
+flowers = [(random.randrange(0,w,50), random.randrange(0,game_h,50)) for _ in range(25)]
+
+def draw_flowers():
+    for f in flowers:
+        pygame.draw.circle(screen, (255,200,200), (f[0]+20,f[1]+20), 4)
+
+# 🌿 BG
+def draw_bg():
+    for i in range(0,w,50):
+        for j in range(0,game_h,50):
+            pygame.draw.rect(screen, grass1 if (i+j)%2==0 else grass2, (i,j,50,50))
+
+# 🍎 FOOD
+def spawn_food(snake):
+    while True:
+        x = random.randrange(0, w//block) * block
+        y = random.randrange(0, game_h//block) * block
+        if [x,y] not in snake:
+            return x,y
+
+def draw_food(x,y):
+    pygame.draw.circle(screen, red, (x+14,y+14), 12)
+
+# ⚡ POWERUPS
+powerups = []
+
+def spawn_powerup():
+    t = random.choice(["speed","shield","coin"])
+    x = random.randrange(0,w//block)*block
+    y = random.randrange(0,game_h//block)*block
+    powerups.append([t,x,y])
+
+def draw_powerups():
+    for p in powerups:
+        color = blue if p[0]=="speed" else yellow if p[0]=="coin" else white
+        pygame.draw.circle(screen, color, (p[1]+14,p[2]+14), 10)
+
+# 🐍 SNAKE
+def draw_head(x,y,c):
+    pygame.draw.circle(screen, c, (x+block//2, y+block//2), block//2)
+    pygame.draw.circle(screen, black, (x+10, y+10), 3)
+    pygame.draw.circle(screen, black, (x+18, y+10), 3)
+
+def draw_body(x,y,c):
+    pygame.draw.circle(screen, (c[0]//2,c[1]//2,c[2]//2), (x+14,y+14), block//2)
+
+# 🕹 JOYSTICK
+joy_center = (300, 780)
+joy_pos = joy_center
+dx, dy = block, 0
+
+def update_joystick(pos):
+    global dx, dy
+    cx, cy = joy_center
+    x, y = pos
+
+    if abs(x-cx) > abs(y-cy):
+        dx = block if x > cx else -block
+        dy = 0
+    else:
+        dy = block if y > cy else -block
+        dx = 0
+
+def draw_joystick():
+    pygame.draw.circle(screen, (120,120,120), joy_center, 70)
+    pygame.draw.circle(screen, (200,200,200), joy_pos, 18)
+
+# 🎮 STATE
+coins = 0
+shop_open = False
+paused = False
+
+pause_btn = pygame.Rect(10, 820, 120, 50)
+shop_btn = pygame.Rect(460, 820, 120, 50)
+
+# 🎮 GAME
+def game():
+    global dx,dy,joy_pos,coins,shop_open,paused
+
+    x,y = 300,300
+    snake=[]
+    length=1
+    score=0
+    lives=3
+
+    foodx,foody = spawn_food(snake)
+    power_timer = pygame.time.get_ticks()
+
+    run = True
+
+    while run:
+        clock.tick(8 + score//5)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mx,my = event.pos
+
+                # 🛒 SHOP BUTTON (EN ÖNEMLİ FIX)
+                if shop_btn.collidepoint(mx,my):
+                    shop_open = not shop_open
+                    continue
+
+                # ⏸ PAUSE
+                if pause_btn.collidepoint(mx,my):
+                    paused = not paused
+                    continue
+
+                # 🕹 JOYSTICK (shop kapalıyken)
+                if not shop_open:
+                    joy_pos = event.pos
+                    update_joystick(event.pos)
+
+                # 🛒 SHOP CLICK FIX
+                if shop_open:
+                    y_btn = 220
+                    clicked = False
+
+                    for i in range(len(skins)):
+                        if 150 <= mx <= 450 and y_btn <= my <= y_btn+50:
+                            buy_or_select_skin(i)
+                            clicked = True
+                        y_btn += 70
+
+                    if not clicked:
+                        shop_open = False
+
+        # 🛒 SHOP SCREEN
+        if shop_open:
+            screen.fill((30,30,30))
+            screen.blit(big_font.render("MAĞAZA",True,white),(200,80))
+            screen.blit(font.render(f"COIN: {coins}",True,white),(220,150))
+
+            y_btn = 220
+            for i,s in enumerate(skins):
+                text = f"{s['name']} - {'✔' if i in owned_skins else str(s['price'])+' COIN'}"
+                pygame.draw.rect(screen, s["color"], (150,y_btn,300,50))
+                screen.blit(font.render(text,True,white),(160,y_btn+15))
+                y_btn += 70
+
+            pygame.display.update()
+            continue
+
+        # ⏸ PAUSE
+        if paused:
+            screen.fill((0,0,0))
+            screen.blit(big_font.render("DURAKLATILDI",True,white),(120,400))
+            pygame.display.update()
+            continue
+
+        # MOVE
+        x += dx
+        y += dy
+
+        if x<0 or x>=w or y<0 or y>=game_h:
+            x,y=300,300
+            snake=[]
+            length=1
+            lives-=1
+
+        snake.append((x,y))
+
+        # FOOD
+        if abs(x-foodx)<block and abs(y-foody)<block:
+            foodx,foody = spawn_food(snake)
+            score += 1
+            coins += 1
+            length += 1
+
+        # POWERUPS
+        if pygame.time.get_ticks() - power_timer > 7000:
+            spawn_powerup()
+            power_timer = pygame.time.get_ticks()
+
+        for p in powerups[:]:
+            if abs(x-p[1])<block and abs(y-p[2])<block:
+                if p[0]=="coin":
+                    coins += 5
+                powerups.remove(p)
+
+        # SELF COLLISION
+        if (x,y) in snake[:-1]:
+            lives -= 1
+            x,y = 300,300
+
+        if len(snake)>length:
+            snake.pop(0)
+
+        if lives<=0:
+            save_high(score)
+            return score
+
+        # DRAW
+        screen.fill((0,0,0))
+        draw_bg()
+        draw_flowers()
+        draw_food(foodx,foody)
+        draw_powerups()
+
+        for i,s in enumerate(snake):
+            if i==len(snake)-1:
+                draw_head(s[0],s[1],snake_color)
+            else:
+                draw_body(s[0],s[1],snake_color)
+
+        screen.blit(font.render(f"Score:{score}",True,white),(10,10))
+        screen.blit(font.render(f"High:{highscore}",True,white),(10,40))
+        screen.blit(font.render(f"Coins:{coins}",True,white),(10,70))
+        screen.blit(font.render(f"❤️{lives}",True,white),(10,100))
+
+        pygame.draw.rect(screen,(60,60,60),pause_btn)
+        screen.blit(font.render("PAUSE",True,white),(20,830))
+
+        pygame.draw.rect(screen,(60,60,60),shop_btn)
+        screen.blit(font.render("SHOP",True,white),(480,830))
+
+        draw_joystick()
+
+        pygame.display.update()
+
+def game_over(score):
+    while True:
+        screen.fill((20,20,20))
+        screen.blit(big_font.render("OYUN BİTTİ",True,(255,0,0)),(140,300))
+        screen.blit(font.render(f"Skor: {score}",True,white),(240,370))
+        pygame.display.update()
+
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT:
+                return "quit"
+            if e.type == pygame.MOUSEBUTTONDOWN:
+                return "restart"
+
+while True:
+    result = game()
+    if result == "quit":
+        break
+    game_over(result)
+
+pygame.quit()
